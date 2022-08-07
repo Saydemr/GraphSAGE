@@ -70,7 +70,7 @@ def calc_f1(y_true, y_pred):
     else:
         y_pred[y_pred > 0.5] = 1
         y_pred[y_pred <= 0.5] = 0
-    return metrics.accuracy_score(y_true, y_pred), metrics.f1_score(y_true, y_pred, average="binary")
+    return metrics.accuracy_score(y_true, y_pred), metrics.f1_score(y_true, y_pred), metrics.roc_auc_score(y_true, y_pred), metrics.precision_score(y_true, y_pred), metrics.recall_score(y_true, y_pred)
 
 # Define model evaluation function
 def evaluate(sess, model, minibatch_iter, size=None):
@@ -78,8 +78,8 @@ def evaluate(sess, model, minibatch_iter, size=None):
     feed_dict_val, labels = minibatch_iter.node_val_feed_dict(size)
     node_outs_val = sess.run([model.preds, model.loss], 
                         feed_dict=feed_dict_val)
-    mic, mac = calc_f1(labels, node_outs_val[0])
-    return node_outs_val[1], mic, mac, (time.time() - t_test)
+    acc, f1, roc_auc, precision, recall = calc_f1(labels, node_outs_val[0])
+    return node_outs_val[1], acc, f1, roc_auc, precision, recall, (time.time() - t_test)
 
 def log_dir():
     log_dir = FLAGS.base_log_dir + "/sup-" + FLAGS.train_prefix.split("/")[-2]
@@ -109,8 +109,8 @@ def incremental_evaluate(sess, model, minibatch_iter, size, test=False):
         iter_num += 1
     val_preds = np.vstack(val_preds)
     labels = np.vstack(labels)
-    f1_scores = calc_f1(labels, val_preds)
-    return np.mean(val_losses), f1_scores[0], f1_scores[1], (time.time() - t_test)
+    acc, f1, roc_auc, precision, recall = calc_f1(labels, val_preds)
+    return np.mean(val_losses), acc, f1, roc_auc, precision, recall, (time.time() - t_test)
 
 def construct_placeholders(num_classes):
     # Define placeholders
@@ -123,7 +123,6 @@ def construct_placeholders(num_classes):
     return placeholders
 
 def train(train_data, test_data=None):
-
     G = train_data[0]
     features = train_data[1]
     id_map = train_data[2]
@@ -282,9 +281,9 @@ def train(train_data, test_data=None):
                 # Validation
                 sess.run(val_adj_info.op)
                 if FLAGS.validate_batch_size == -1:
-                    val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+                    val_cost, val_acc, val_f1, val_roc_auc, val_precision, val_recall, val_duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
                 else:
-                    val_cost, val_f1_mic, val_f1_mac, duration = evaluate(sess, model, minibatch, FLAGS.validate_batch_size)
+                    val_cost, val_acc, val_f1, val_roc_auc, val_precision, val_recall, val_duration = evaluate(sess, model, minibatch, FLAGS.validate_batch_size)
                 sess.run(train_adj_info.op)
                 epoch_val_costs[-1] += val_cost
 
@@ -295,14 +294,20 @@ def train(train_data, test_data=None):
             avg_time = (avg_time * total_steps + time.time() - t) / (total_steps + 1)
 
             if total_steps % FLAGS.print_every == 0:
-                train_f1_mic, train_f1_mac = calc_f1(labels, outs[-1])
+                train_acc, train_f1, train_roc_auc, train_precision, train_recall = calc_f1(labels, outs[-1])
                 print("Iter:", '%04d' % iter, 
                       "train_loss=", "{:.5f}".format(train_cost),
-                      "train_f1_mic=", "{:.5f}".format(train_f1_mic), 
-                      "train_f1_mac=", "{:.5f}".format(train_f1_mac), 
+                      "train_acc=", "{:.5f}".format(train_acc), 
+                      "train_f1=", "{:.5f}".format(train_f1), 
+                      "train_roc_auc=", "{:.5f}".format(train_roc_auc), 
+                      "train_precision=", "{:.5f}".format(train_precision), 
+                      "train_recall=", "{:.5f}".format(train_recall), 
                       "val_loss=", "{:.5f}".format(val_cost),
-                      "val_f1_mic=", "{:.5f}".format(val_f1_mic), 
-                      "val_f1_mac=", "{:.5f}".format(val_f1_mac), 
+                      "val_acc=", "{:.5f}".format(val_acc), 
+                      "val_f1=", "{:.5f}".format(val_f1), 
+                      "val_roc_auc=", "{:.5f}".format(val_roc_auc), 
+                      "val_precision=", "{:.5f}".format(val_precision), 
+                      "val_recall=", "{:.5f}".format(val_recall), 
                       "time=", "{:.5f}".format(avg_time))
  
             iter += 1
@@ -316,21 +321,24 @@ def train(train_data, test_data=None):
     
     print("Optimization Finished!")
     sess.run(val_adj_info.op)
-    val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    val_cost, val_acc, val_f1, val_roc_auc, val_precision, val_recall, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
     print("Full validation stats:",
                   "loss=", "{:.5f}".format(val_cost),
-                  "f1_micro=", "{:.5f}".format(val_f1_mic),
-                  "f1_macro=", "{:.5f}".format(val_f1_mac),
+                  "accuracy=", "{:.5f}".format(val_acc),
+                  "f1=", "{:.5f}".format(val_f1),
+                  "roc_auc=", "{:.5f}".format(val_roc_auc),
+                  "precision=", "{:.5f}".format(val_precision),
+                  "recall=", "{:.5f}".format(val_recall),
                   "time=", "{:.5f}".format(duration))
     with open(log_dir() + "val_stats.txt", "w") as fp:
-        fp.write("loss={:.5f} f1_micro={:.5f} f1_macro={:.5f} time={:.5f}".
-                format(val_cost, val_f1_mic, val_f1_mac, duration))
+        fp.write("loss={:.5f} acc={:.5f} f1={:.5f} roc_auc={:.5f} precision={:.5f} recall={:.5f} time={:.5f}".
+                format(val_cost, val_acc, val_f1, val_roc_auc, val_precision, val_recall, duration))
 
     print("Writing test set stats to file (don't peak!)")
-    val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size, test=True)
+    test_cost, test_acc, test_f1, test_roc_auc, test_precision, test_recall, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size, test=True)
     with open(log_dir() + "test_stats.txt", "w") as fp:
-        fp.write("loss={:.5f} f1_micro={:.5f} f1_macro={:.5f}".
-                format(val_cost, val_f1_mic, val_f1_mac))
+        fp.write("loss={:.5f} acc={:.5f} f1={:.5f} roc_auc={:.5f} precision={:.5f} recall={:.5f} time={:.5f}".
+                format(test_cost, test_acc, test_f1, test_roc_auc, test_precision, test_recall, duration))
 
 def main(argv=None):
     print("Loading training data..")
