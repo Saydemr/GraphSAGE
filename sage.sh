@@ -48,7 +48,7 @@ organism="$1"
 Models="graphsage_maxpool graphsage_meanpool n2v"
 
 python -m graphsage.utils example_data/${organism}-G.json example_data/${organism}-walks.txt 
-for option in 4 3 2 1 0
+for option in 0 1 2 3 4
 do
     rm -f example_data/${organism}-feats.npy 
     if [ $option -eq 1 ]; then 
@@ -70,13 +70,13 @@ do
         do
             for epoch in 1
             do
-                for batch_size in 32
+                for batch_size in 512
                 do
                     for model in $Models
                     do
                         my_dir="unsupervised/org${organism}_e${epoch}_b${batch_size}_id${identity_dim}_opt${option}"
                         mkdir -p ${my_dir}
-                        python -m graphsage.unsupervised_train --train_prefix ./example_data/${organism} --model ${model} --batch_size ${batch_size} --epochs ${epoch} --identity_dim ${identity_dim} --learning_rate ${lr} --validate_iter 100 --print_every 10000 --base_log_dir ${my_dir} --gpu 0
+                        python -m graphsage.unsupervised_train --train_prefix ./example_data/${organism} --model ${model} --batch_size ${batch_size} --epochs ${epoch} --identity_dim ${identity_dim} --learning_rate ${lr} --validate_iter 100 --print_every 1000 --max_total_steps 10000 --base_log_dir ${my_dir} --gpu 0
                     done
                 done
             done
