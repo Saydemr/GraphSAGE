@@ -66,7 +66,7 @@ do
 
     for identity_dim in 32
     do
-        for lr in 0.0001 0.001 0.005  
+        for lr in 0.0001  
         do
             for epoch in 1
             do
