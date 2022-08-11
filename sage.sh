@@ -20,7 +20,7 @@ do
             cp example_data/${organism}-all-feats.npy example_data/${organism}-feats.npy
         fi
     
-        my_dir="supervised/org${organism}_id${identity_dim}_opt${option}"
+        my_dir="supervised/org${organism}_id_opt${option}"
         mkdir -p ${my_dir}
         python -m graphsage.supervised_train --train_prefix ./example_data/${organism} --model ${model} --base_log_dir ${my_dir} --identity_dim 64 --gpu 0
     
